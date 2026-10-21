@@ -86,8 +86,10 @@ def make_handler(root: Path, policy: AccessPolicy):
                 self.send_error_text(HTTPStatus.NOT_FOUND, "not found")
                 return
             requested = components[1] if len(components) == 2 else ""
-            base = root.parent if root.is_file() else root
-            target = root if root.is_file() and requested in ("", root.name) else safe_resolve(base, requested)
+            if root.is_file():
+                target = root if unquote(requested) in ("", root.name) else None
+            else:
+                target = safe_resolve(root, requested)
             if target is None or not target.exists():
                 self.send_error_text(HTTPStatus.NOT_FOUND, "not found")
                 return
