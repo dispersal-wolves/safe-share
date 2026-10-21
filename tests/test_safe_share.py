@@ -54,6 +54,28 @@ class SafeShareTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2)
 
+    def test_single_file_share_does_not_expose_siblings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "release.txt"
+            target.write_text("shared", encoding="utf-8")
+            (Path(directory) / "secret.txt").write_text("private", encoding="utf-8")
+            token = "correct-token-123"
+            server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(target, AccessPolicy(token, 60, 5)))
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base = f"http://127.0.0.1:{server.server_port}/{token}"
+                for path in ("secret.txt", ".", "./secret.txt", "%2e"):
+                    with self.assertRaises(urllib.error.HTTPError, msg=path) as denied:
+                        urllib.request.urlopen(f"{base}/{path}", timeout=2)
+                    self.assertEqual(denied.exception.code, 404)
+                with urllib.request.urlopen(f"{base}/release.txt", timeout=2) as response:
+                    self.assertEqual(response.read(), b"shared")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
 
 if __name__ == "__main__":
     unittest.main()
