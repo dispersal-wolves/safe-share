@@ -1,3 +1,4 @@
+import socket
 import tempfile
 import threading
 import unittest
@@ -6,7 +7,7 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from safe_share import AccessPolicy, make_handler, safe_resolve
+from safe_share import AccessPolicy, make_handler, make_server, safe_resolve
 
 
 class SafeShareTests(unittest.TestCase):
@@ -21,6 +22,26 @@ class SafeShareTests(unittest.TestCase):
         policy = AccessPolicy("correct-token-123", 60, 1)
         self.assertTrue(policy.valid_token("correct-token-123"))
         self.assertFalse(policy.valid_token("wrong-token-12345"))
+
+    @unittest.skipUnless(socket.has_ipv6, "IPv6 unavailable")
+    def test_ipv6_loopback_serves(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "release.txt"
+            target.write_text("v6", encoding="utf-8")
+            token = "correct-token-123"
+            try:
+                server = make_server("::1", 0, make_handler(target, AccessPolicy(token, 60, 1)))
+            except OSError as error:
+                self.skipTest(f"cannot bind ::1: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with urllib.request.urlopen(f"http://[::1]:{server.server_port}/{token}/release.txt", timeout=2) as response:
+                    self.assertEqual(response.read(), b"v6")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
 
     def test_path_traversal_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

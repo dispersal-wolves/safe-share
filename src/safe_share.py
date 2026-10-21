@@ -7,6 +7,7 @@ import hmac
 import json
 import mimetypes
 import secrets
+import socket
 import ssl
 import sys
 import threading
@@ -126,6 +127,13 @@ def make_handler(root: Path, policy: AccessPolicy):
     return ShareHandler
 
 
+def make_server(host: str, port: int, handler) -> ThreadingHTTPServer:
+    server_class = ThreadingHTTPServer
+    if ":" in host:
+        server_class = type("IPv6ThreadingHTTPServer", (ThreadingHTTPServer,), {"address_family": socket.AF_INET6})
+    return server_class((host, port), handler)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("path", type=Path)
@@ -159,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Token must be at least 16 characters", file=sys.stderr)
         return 2
     policy = AccessPolicy(token, args.expires * 60, args.max_downloads)
-    server = ThreadingHTTPServer((args.host, args.port), make_handler(path, policy))
+    server = make_server(args.host, args.port, make_handler(path, policy))
     scheme = "http"
     if args.cert:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -168,7 +176,8 @@ def main(argv: list[str] | None = None) -> int:
         server.socket = context.wrap_socket(server.socket, server_side=True)
         scheme = "https"
     suffix = quote(path.name) if path.is_file() else ""
-    print(f"Share URL: {scheme}://{args.host}:{server.server_port}/{token}/{suffix}")
+    display_host = f"[{args.host}]" if ":" in args.host else args.host
+    print(f"Share URL: {scheme}://{display_host}:{server.server_port}/{token}/{suffix}")
     print(f"Expires in {args.expires} minute(s); press Ctrl+C to stop.")
     try:
         server.serve_forever()
