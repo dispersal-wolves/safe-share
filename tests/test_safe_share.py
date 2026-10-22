@@ -77,5 +77,32 @@ class SafeShareTests(unittest.TestCase):
                 thread.join(timeout=2)
 
 
+    def test_directory_listing_closes_with_share(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "release.txt").write_text("shared", encoding="utf-8")
+            token = "correct-token-123"
+            policy = AccessPolicy(token, 60, 1)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(root, policy))
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base = f"http://127.0.0.1:{server.server_port}/{token}"
+                with urllib.request.urlopen(f"{base}/", timeout=2) as response:
+                    self.assertIn(b"release.txt", response.read())
+                urllib.request.urlopen(f"{base}/release.txt", timeout=2).close()
+                with self.assertRaises(urllib.error.HTTPError) as exhausted:
+                    urllib.request.urlopen(f"{base}/", timeout=2)
+                self.assertEqual(exhausted.exception.code, 410)
+                policy.remaining = -1
+                policy.deadline = 0
+                with self.assertRaises(urllib.error.HTTPError) as expired:
+                    urllib.request.urlopen(f"{base}/", timeout=2)
+                self.assertEqual(expired.exception.code, 410)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
 if __name__ == "__main__":
     unittest.main()

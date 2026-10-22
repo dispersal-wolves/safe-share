@@ -94,6 +94,10 @@ def make_handler(root: Path, policy: AccessPolicy):
                 self.send_error_text(HTTPStatus.NOT_FOUND, "not found")
                 return
             if target.is_dir():
+                permitted, reason = policy.available()
+                if not permitted:
+                    self.send_error_text(HTTPStatus.GONE, reason)
+                    return
                 entries = [{"name": child.name, "type": "directory" if child.is_dir() else "file"} for child in sorted(target.iterdir(), key=lambda item: item.name.lower())]
                 body = json.dumps({"entries": entries}, indent=2).encode()
                 self.send_response(HTTPStatus.OK)
